@@ -1,0 +1,32 @@
+name: Fetch Lime Data
+
+on:
+  schedule:
+    - cron: '*/5 5-17 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run fetcher
+        env:
+          LIME_TOKEN: ${{ secrets.LIME_TOKEN }}
+        run: python3 fetcher.py
+
+      - name: Commit updated data
+        run: |
+          git config user.name "ride-ops-bot"
+          git config user.email "bot@ride-ops"
+          git add docs/dashboard_data.json data/events.json state.json
+          git diff --cached --quiet && echo "No changes" || git commit -m "data: $(date -u '+%Y-%m-%d %H:%M') UTC"
+          git push

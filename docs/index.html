@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ride Operations Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f4f0;color:#1a1a1a;line-height:1.5}
+.wrap{max-width:920px;margin:0 auto;padding:32px 20px}
+h1{font-size:22px;font-weight:700;letter-spacing:-.5px}
+.sub{font-size:13px;color:#8b8b8b;margin-top:2px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+.banner{border-radius:8px;padding:18px 24px;margin-bottom:28px;color:#fff}
+.banner h2{font-size:17px;font-weight:600;margin:0}
+.banner .meta{font-size:13px;color:rgba(255,255,255,.85);margin-top:6px;display:flex;gap:20px;flex-wrap:wrap}
+.banner .meta .right{margin-left:auto}
+.sort-bar{display:flex;gap:8px;margin-bottom:16px;font-size:12px;flex-wrap:wrap;align-items:center}
+.sort-bar span{color:#8b8b8b;line-height:28px}
+.sort-bar button{background:transparent;color:#8b8b8b;border:1px solid #e8e7e3;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer}
+.sort-bar button.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a;font-weight:600}
+.card{background:#fff;border:1px solid #e8e7e3;border-radius:8px;padding:16px 20px;margin-bottom:2px;cursor:pointer;transition:box-shadow .15s}
+.card:hover{box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.card-top{display:flex;align-items:center;gap:16px}
+.ride-name{width:150px;min-width:150px;max-width:150px;overflow:hidden}
+.ride-name-text{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ride-uptime{font-size:11px;color:#8b8b8b;margin-top:1px}
+.slot-bar-wrap{flex:1;display:flex;flex-direction:column}
+.slot-bar{display:flex;gap:1px}
+.slot-bar div{flex:1;height:26px;border-radius:2px;min-width:2px}
+.slot-times{display:flex;justify-content:space-between;font-size:10px;color:#8b8b8b;margin-top:2px}
+.status-label{min-width:90px;text-align:right;font-weight:600;font-size:13px}
+.detail{margin-top:16px;padding-top:16px;border-top:1px solid #e8e7e3}
+.stats{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px}
+.stat-label{font-size:10px;color:#8b8b8b;text-transform:uppercase;letter-spacing:.5px}
+.stat-value{font-size:15px;font-weight:600;margin-top:2px}
+.section-title{font-size:13px;font-weight:600;margin:16px 0 8px;color:#1a1a1a}
+.bar-wrap{display:flex;gap:1.5px;height:32px;align-items:stretch}
+.bar-day{flex:1;border-radius:3px;overflow:hidden;display:flex;flex-direction:column;min-width:4px}
+.bar-label{display:flex;justify-content:space-between;font-size:11px;color:#8b8b8b;margin-top:4px}
+.day-slot-label{font-size:12px;color:#8b8b8b;margin:8px 0 4px}
+.footer{text-align:center;margin-top:32px;font-size:11px;color:#8b8b8b}
+.reload-btn{background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer}
+.reload-btn:hover{opacity:.9}
+.green{color:#3bd671}.yellow{color:#f5a623}.red{color:#e8433e}
+.loading{text-align:center;padding:80px;font-size:16px;color:#8b8b8b}
+.error{text-align:center;padding:40px;color:#e8433e}
+.no-data{font-size:12px;color:#8b8b8b;font-style:italic;padding:8px 0}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="loading">Загрузка данных...</div>
+</div>
+<script>
+const C={green:"#3bd671",yellow:"#f5a623",red:"#e8433e",gray:"#e2e2e2",grayText:"#8b8b8b"};
+const SL={green:"Работает",yellow:"Риск",red:"Нет сигнала"};
+const SC={green:C.green,yellow:C.yellow,red:C.red};
+const SlC={g:C.green,y:C.yellow,r:C.red};
+let DATA=null,SORT="status",EXPANDED=null;
+
+function fmtDate(s){if(!s)return"";const p=s.split("-");return p[2]+"."+p[1]}
+function fmtDt(s){return s?s.replace("2026-",""):"-"}
+
+async function loadData(){
+  try{
+    const r=await fetch("dashboard_data.json?t="+Date.now());
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    DATA=await r.json();render();
+  }catch(e){
+    document.getElementById("app").innerHTML=
+      '<div class="error">Не удалось загрузить dashboard_data.json<br><br>'+e.message+
+      '<br><br>Убедитесь, что fetcher.py отработал и файл существует.</div>';
+  }
+}
+
+function getTodayStr(cfg){
+  return cfg.loaded_at?cfg.loaded_at.split(" ")[0]:null;
+}
+
+function render(){
+  if(!DATA)return;
+  const d=DATA,cfg=d.config,rides=sortRides(d.rides);
+  const reds=rides.filter(r=>r.current_status==="red").length;
+  const yellows=rides.filter(r=>r.current_status==="yellow").length;
+  const greens=rides.filter(r=>r.current_status==="green").length;
+  const bannerBg=reds>0?C.red:yellows>0?C.yellow:C.green;
+  const bannerText=reds>0?`Проблемы: ${reds} без сигнала`:yellows>0?`Внимание: ${yellows} под вопросом`:"Все аттракционы работают";
+  const today=getTodayStr(cfg);
+  const cutoff=cfg.loaded_at||"9999";
+
+  let html=`
+  <div class="header">
+    <div><h1>Ride Operations</h1><div class="sub">Мониторинг работоспособности аттракционов</div></div>
+    <button class="reload-btn" onclick="loadData()">ОБНОВИТЬ</button>
+  </div>
+  <div class="banner" style="background:${bannerBg}">
+    <h2>${bannerText}</h2>
+    <div class="meta"><span>${greens} ok</span><span>${yellows} риск</span><span>${reds} нет сигнала</span>
+    <span class="right">Данные на: ${fmtDt(cfg.loaded_at)}</span></div>
+  </div>
+  <div class="sort-bar">
+    <span>Сортировка:</span>
+    <button class="${SORT==="status"?"active":""}" onclick="SORT='status';render()">По статусу</button>
+    <button class="${SORT==="uptime"?"active":""}" onclick="SORT='uptime';render()">По uptime</button>
+    <button class="${SORT==="name"?"active":""}" onclick="SORT='name';render()">По имени</button>
+  </div>`;
+
+  for(const ride of rides){
+    const st=ride.current_status;
+    const isExp=EXPANDED===ride.ride_id;
+
+    // Today's slots for collapsed view
+    const todaySlots=ride.slots?ride.slots.filter(s=>s[0].startsWith(today)):[];
+    let slotBarHtml="";
+    if(todaySlots.length>0){
+      slotBarHtml='<div class="slot-bar">';
+      for(const s of todaySlots){
+        const isFut=s[0]>=cutoff;
+        const bg=isFut?C.gray:(SlC[s[2]]||C.gray);
+        const op=isFut?"opacity:.5":"";
+        slotBarHtml+=`<div style="background:${bg};${op}" title="${s[0].split(' ')[1]} | ${isFut?"ещё впереди":s[1]+" соб. | "+s[3]+" мин"}"></div>`;
+      }
+      slotBarHtml+='</div><div class="slot-times"><span>10:00</span><span>14:00</span><span>18:00</span><span>22:00</span></div>';
+    }else{
+      slotBarHtml='<div class="no-data">Нет данных за сегодня</div>';
+    }
+
+    html+=`<div class="card" onclick="EXPANDED=EXPANDED==='${ride.ride_id}'?null:'${ride.ride_id}';render()">
+      <div class="card-top">
+        <div class="ride-name">
+          <div class="ride-name-text">${ride.name}</div>
+          <div class="ride-uptime">${ride.overall_uptime}% uptime</div>
+        </div>
+        <div class="slot-bar-wrap">${slotBarHtml}</div>
+        <div class="status-label" style="color:${SC[st]}">${SL[st]}</div>
+      </div>`;
+
+    if(isExp){
+      // Expanded: stats + daily history + slot drill-down
+      const laDate=today;
+      const laTime=cfg.loaded_at?cfg.loaded_at.split(" ")[1]:null;
+      let futureCount=0;
+      if(laDate&&laTime){const[hh,mm]=laTime.split(":").map(Number);futureCount=Math.max(0,48-Math.floor((hh*60+mm-10*60)/15))}
+
+      html+=`<div class="detail" onclick="event.stopPropagation()">
+        <div class="stats">
+          <div><div class="stat-label">ПОСЛЕДНИЙ СИГНАЛ</div><div class="stat-value">${fmtDt(ride.last_signal||"")}</div></div>
+          <div><div class="stat-label">МИН. БЕЗ СИГНАЛА</div><div class="stat-value" style="color:${st!=="green"?C.red:""}">${ride.minutes_since}</div></div>
+          <div><div class="stat-label">UPTIME</div><div class="stat-value">${ride.overall_uptime}%</div></div>
+          <div><div class="stat-label">СТАТУС</div><div class="stat-value" style="color:${SC[st]}">${SL[st]}</div></div>
+        </div>`;
+
+      // Daily history bars
+      html+=`<div class="section-title">История по дням (${d.dates.length} дней)</div>
+        <div class="bar-wrap">`;
+      for(const day of ride.days){
+        const t=day.planned||1;
+        const isToday=day.date===laDate;
+        const fut=isToday?Math.min(futureCount,day.red):0;
+        const rr=day.red-fut;
+        const tip=isToday
+          ?`${fmtDate(day.date)}: ${day.planned-fut} слотов завершено\n${day.green}g / ${day.yellow}y / ${rr}r / ${fut} впереди`
+          :`${fmtDate(day.date)}: ${day.uptime}% uptime\n${day.green}g / ${day.yellow}y / ${day.red}r`;
+        html+=`<div class="bar-day" title="${tip}">
+          <div style="height:${(day.green/t)*100}%;background:${C.green}"></div>
+          <div style="height:${(day.yellow/t)*100}%;background:${C.yellow}"></div>
+          <div style="height:${(rr/t)*100}%;background:${C.red}"></div>
+          ${fut>0?`<div style="height:${(fut/t)*100}%;background:${C.gray}"></div>`:""}
+        </div>`;
+      }
+      html+=`</div><div class="bar-label"><span>${fmtDate(d.dates[0])}</span><span>${fmtDate(d.dates[d.dates.length-1])}</span></div>`;
+
+      // Slot drill-down for recent days (excluding today which is already shown)
+      const slotDates=d.dates.slice(-30).filter(dd=>dd!==today);
+      if(ride.slots&&ride.slots.length>0&&slotDates.length>0){
+        html+=`<div class="section-title">15-минутные слоты (предыдущие дни)</div>`;
+        for(const sd of slotDates){
+          const ds=ride.slots.filter(s=>s[0].startsWith(sd));
+          if(!ds.length)continue;
+          html+=`<div class="day-slot-label">${fmtDate(sd)} (${sd})</div><div class="slot-bar">`;
+          for(const s of ds){
+            html+=`<div style="background:${SlC[s[2]]||C.gray}" title="${s[0].split(' ')[1]} | ${s[1]} соб. | ${s[3]} мин"></div>`;
+          }
+          html+=`</div><div class="slot-times"><span>10:00</span><span>14:00</span><span>18:00</span><span>22:00</span></div>`;
+        }
+      }
+      html+=`</div>`;
+    }
+    html+=`</div>`;
+  }
+
+  html+=`<div class="footer">MVP Ride Ops Dashboard | ${d.rides.length} аттракционов | ${d.dates.length} дней<br>
+    Статус по косвенным сигналам БПС, не по телеметрии | Плановое окно ${cfg.schedule_start}-${cfg.schedule_end}
+    <br>Автообновление каждые 60 секунд</div>`;
+
+  document.getElementById("app").innerHTML=html;
+}
+
+function sortRides(rides){
+  const arr=[...rides];
+  if(SORT==="uptime")arr.sort((a,b)=>a.overall_uptime-b.overall_uptime);
+  else if(SORT==="name")arr.sort((a,b)=>a.name.localeCompare(b.name));
+  else{const o={red:0,yellow:1,green:2};arr.sort((a,b)=>(o[a.current_status]??3)-(o[b.current_status]??3))}
+  return arr;
+}
+
+loadData();
+setInterval(loadData,60000);
+</script>
+</body>
+</html>
